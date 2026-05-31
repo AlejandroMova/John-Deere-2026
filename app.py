@@ -181,6 +181,138 @@ def forecast_7d(base, sigma, rev_rate, lo, hi, seed):
     return np.array(v)
 
 
+def get_bot_response(msg: str) -> str:
+    """Keyword-based agronomic assistant responses (Spanish)."""
+    m = msg.lower().strip()
+
+    # Saludos
+    if any(w in m for w in ["hola", "buenas", "hey", "ayuda", "help", "inicio"]):
+        return ("Hola! Soy AgroBot 🌾 Puedo ayudarte con:\n\n"
+                "• **Rendimiento** — predicciones de cosecha\n"
+                "• **Siembra** — profundidad y posición de semillas\n"
+                "• **Fertilizante** — dosis y timing\n"
+                "• **Tractor** — ruta óptima y velocidad\n"
+                "• **Clima** — temperatura y humedad\n\n"
+                "¿Sobre qué quieres saber?")
+
+    # Rendimiento / cosecha
+    if any(w in m for w in ["rendimiento", "cosecha", "tonelada", "ton", "yield", "produccion", "producción"]):
+        return ("El simulador de cosecha usa las **20 cosechas históricas más similares** "
+                "a tus condiciones actuales (distancia euclidiana normalizada) para estimar el rendimiento.\n\n"
+                "**Factores clave:**\n"
+                "• Humedad del grano < 14% → rendimiento óptimo\n"
+                "• Velocidad < 6.5 km/h → sin penalización\n"
+                "• Fertilizante ≥ 193 kg/ha → beneficio máximo\n"
+                "• Temperatura > 35°C → penalización de 0.08 t/ha por grado\n\n"
+                "Ajusta los sliders en el **Simulador** para ver el impacto en tiempo real.")
+
+    # Humedad del grano
+    if any(w in m for w in ["humedad grano", "humedad del grano", "moisture", "grano húmedo", "secar"]):
+        return ("La humedad del grano es el factor individual más importante en cosecha.\n\n"
+                "• **< 14%** → óptimo, sin penalización\n"
+                "• **14–20%** → penalización de 0.12 t/ha por % extra\n"
+                "• **> 20%** → riesgo de pérdidas en cabezal y mayor costo de secado\n\n"
+                "Reducir de 18% a 14% puede representar **+0.48 t/ha** según el modelo.")
+
+    # Fertilizante
+    if any(w in m for w in ["fertilizante", "nitrogeno", "nitrógeno", "dosis", "npk", "abono", "nutriente"]):
+        return ("La dosis de fertilizante nitrogenado se calcula con la **curva de Mitscherlich-Baule** "
+                "(ley de rendimientos decrecientes):\n\n"
+                "• El beneficio máximo se alcanza en ~**193 kg/ha**\n"
+                "• Por encima de eso, el rendimiento ya no aumenta\n"
+                "• La dosis varía por etapa: Vegetativo (45%) > Siembra (30%) > Reproductivo (20%)\n\n"
+                "Revisa el módulo **Siembra y predicciones → Fertilizante** para la curva de respuesta.")
+
+    # Semilla / siembra / profundidad
+    if any(w in m for w in ["semilla", "siembra", "profundidad", "plantar", "planting", "seed"]):
+        return ("La profundidad óptima de siembra depende de la humedad y temperatura del suelo:\n\n"
+                "| Cultivo | Profundidad base |\n"
+                "|---------|------------------|\n"
+                "| Maíz    | 3.8 cm           |\n"
+                "| Trigo   | 3.0 cm           |\n"
+                "| Soya    | 3.5 cm           |\n"
+                "| Sorgo   | 2.5 cm           |\n\n"
+                "• Suelo seco → planta más profundo (hasta +1.8 cm)\n"
+                "• Suelo frío → planta más somero (-0.5 cm)\n\n"
+                "Ajusta en **Siembra y predicciones → Profundidad de semilla**.")
+
+    # Tractor / ruta / velocidad
+    if any(w in m for w in ["tractor", "ruta", "velocidad", "combustible", "gasolina", "diesel", "falla", "ruta"]):
+        return ("**Ruta óptima:** El algoritmo boustrofedón (zigzag) minimiza los giros y maximiza la cobertura. "
+                "Para un campo de 300×200 m con cabezal de 4.5 m: ~45 pasadas, ~13.8 km recorridos.\n\n"
+                "**Velocidad óptima:** La curva de combustible (5.5/v + 0.14v) tiene mínimo en ~**6.3 km/h**. "
+                "Por encima de 8 km/h la probabilidad de falla mecánica sube exponencialmente.\n\n"
+                "Ve a **Operaciones del tractor** para ver las curvas en tiempo real.")
+
+    # Temperatura
+    if any(w in m for w in ["temperatura", "calor", "frio", "frío", "clima", "tiempo", "weather", "estrés"]):
+        return ("**Temperatura y rendimiento:**\n"
+                "• < 35°C → sin penalización en cosecha\n"
+                "• > 35°C → pierde 0.08 t/ha por cada grado adicional (estrés térmico en llenado de grano)\n\n"
+                "**Temperatura del motor:**\n"
+                "• < 95°C → operación normal\n"
+                "• > 95°C → pérdida de 0.03 t/ha por grado (derate del ECU)\n\n"
+                "El pronóstico de temperatura a 7 días está en **Siembra y predicciones → Temperatura**.")
+
+    # Humedad del suelo / del aire
+    if any(w in m for w in ["humedad suelo", "humedad del suelo", "humedad aire", "riego", "lluvia", "precipitacion"]):
+        return ("**Humedad del suelo:**\n"
+                "• Rango óptimo: **20–50%**\n"
+                "• Suelo muy seco → mayor profundidad de siembra para alcanzar la humedad\n"
+                "• Suelo saturado → riesgo de compactación y enfermedades radiculares\n\n"
+                "El pronóstico de humedad del suelo a 7 días está en **Siembra y predicciones → Humedad**.")
+
+    # Cuándo cosechar / timing
+    if any(w in m for w in ["cuando cosechar", "cuándo cosechar", "tiempo cosecha", "gdd", "grados dia", "grados día", "madurez"]):
+        return ("El momento óptimo de cosecha se determina con dos modelos:\n\n"
+                "1. **GDD (Grados-Día de Crecimiento):** Maíz necesita ~2800 GDD (base 10°C) para madurez\n"
+                "2. **Secado del grano:** ~0.7% de humedad se pierde por día en condiciones normales\n\n"
+                "Se cosecha cuando **ambas condiciones** se cumplen.\n\n"
+                "Revisa el indicador en **Siembra y predicciones → ¿Cuándo cosechar?**")
+
+    # Confianza / modelo
+    if any(w in m for w in ["confianza", "modelo", "precisión", "precision", "error", "mae", "exactitud"]):
+        return ("El modelo tiene un **error promedio (MAE) de 0.31 t/ha** en validación con 30 cosechas.\n\n"
+                "La confianza se calcula según qué tan similares son las 20 cosechas históricas usadas: "
+                "si están muy cerca de tus condiciones → alta confianza (hasta 95%); "
+                "si son muy diferentes → baja confianza (mínimo 40%).\n\n"
+                "El piso de ruido irreducible del dataset es ~0.40 t/ha (σ del campo).\n\n"
+                "Ver detalles en el tab **Historial del modelo**.")
+
+    # Presión / boquilla / aspersión
+    if any(w in m for w in ["presión", "presion", "boquilla", "caudal", "aspersor", "pulverizar", "bar"]):
+        return ("La tasa de aplicación de fertilizante líquido sigue la **ecuación ISO 10625**:\n\n"
+                "**Q (L/min) = K × √P**\n\n"
+                "Donde K depende del tamaño de boquilla:\n"
+                "• Boquilla 015 → K=0.24 | Boquilla 03 → K=0.49 | Boquilla 05 → K=0.82\n\n"
+                "A 3 bar con boquilla 03 y 7 km/h: **~198 L/ha**. "
+                "Ajusta en **Siembra → Caudal y presión**.")
+
+    # Posición semillas / mapa
+    if any(w in m for w in ["mapa", "posición", "posicion", "campo", "zona", "calidad suelo", "terreno"]):
+        return ("El mapa de calidad del suelo muestra zonas de alta y baja aptitud agrícola "
+                "basado en variabilidad espacial de materia orgánica, drenaje y textura.\n\n"
+                "• **Verde oscuro** → suelo de alta calidad, siembra prioritaria\n"
+                "• **Rojo/café** → suelo limitante, ajustar densidad de siembra\n"
+                "• **Líneas amarillas** → contorno del umbral óptimo configurable\n\n"
+                "En producción, este mapa vendría de muestras georeferenciadas o sensores remotos.")
+
+    # Datos / John Deere API
+    if any(w in m for w in ["dato", "api", "operations center", "real", "integrar", "conectar"]):
+        return ("Los datos actuales son **sintéticos** (generados con fórmulas agronómicas + ruido gaussiano).\n\n"
+                "Para conectar datos reales de John Deere Operations Center:\n"
+                "1. Reemplaza `Data/raw/yield_harvest.csv` con datos exportados de la API\n"
+                "2. El schema ya es compatible (mismas columnas)\n"
+                "3. Los modelos se reentrenan con `python3 Data/training/train_yield.py`\n\n"
+                "El endpoint clave es `/organizations/{id}/fields/{id}/fieldOperations`.")
+
+    # Fallback
+    return ("No tengo una respuesta específica para eso. Intenta preguntar sobre:\n\n"
+            "**rendimiento** · **fertilizante** · **semilla** · **profundidad** · "
+            "**tractor** · **velocidad** · **temperatura** · **humedad** · "
+            "**cuando cosechar** · **confianza** · **boquilla** · **mapa**")
+
+
 def format_duration(hours_value):
     total_minutes = int(round(float(hours_value) * 60))
     hours, minutes = divmod(total_minutes, 60)
@@ -561,6 +693,7 @@ PAGES = [
     "Semáforo operacional",
     "Gemelo digital",
     "Simulación",
+    "AgroBot",
 ]
 
 if "page" not in st.session_state:
@@ -1044,5 +1177,49 @@ elif page == "Gemelo digital":
             st.plotly_chart(fig_sp, use_container_width=True)
             mnote("Optimización Pareto multi-objetivo: suma de scores normalizados [0–1] para combustible, "
                   "tiempo y P(falla). La línea amarilla marca el mínimo compuesto.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PAGE: AGROBOT
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "AgroBot":
+    # Init chat history
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+    if not st.session_state.chat_history:
+        st.session_state.chat_history = [
+            {"role": "assistant",
+             "content": ("Hola! Soy **AgroBot**, tu asistente agronómico. "
+                         "Pregúntame sobre rendimiento, siembra, fertilizante, "
+                         "tractor, clima o cualquier cosa del simulador.")}
+        ]
+
+    # Header
+    st.markdown(
+        f'<div style="margin-bottom:1.5rem;">'
+        f'<div style="color:{JD_YELLOW};font-size:0.78rem;font-weight:800;'
+        f'letter-spacing:1.3px;text-transform:uppercase;">Asistente agronómico</div>'
+        f'<div style="font-size:2rem;font-weight:800;line-height:1.1;margin-top:0.25rem;">'
+        f'AgroBot</div>'
+        f'<div style="color:{TEXT_MUTED};font-size:0.9rem;margin-top:0.4rem;">'
+        f'Responde preguntas sobre el simulador, los modelos y decisiones agronómicas.</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Chat display — fixed-height scrollable container
+    chat_container = st.container(height=520)
+    with chat_container:
+        for msg in st.session_state.chat_history:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+    # Input using native chat_input (sticks to bottom of the page)
+    user_input = st.chat_input("Escribe tu pregunta aquí…")
+    if user_input:
+        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        st.session_state.chat_history.append(
+            {"role": "assistant", "content": get_bot_response(user_input)}
+        )
+        st.rerun()
 
 
