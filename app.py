@@ -4,6 +4,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from math import ceil, pi, sqrt
+from pathlib import Path
+from urllib.parse import quote
 
 # ─── Brand palette ────────────────────────────────────────────────────────────
 JD_GREEN       = "#367C2B"
@@ -14,63 +16,71 @@ SURFACE_HIGH   = "#2C2C2C"
 BORDER         = "#333333"
 TEXT_PRIMARY   = "#F0F0F0"
 TEXT_MUTED     = "#888888"
+APP_DIR        = Path(__file__).parent
+RAW_DATA_DIR    = APP_DIR / "Data" / "raw"
 
 st.set_page_config(
     page_title="AgroIntel — John Deere",
     page_icon="🚜",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 st.markdown(f"""
 <style>
-  .stApp {{ background-color: {DARK_BG}; }}
-  .main .block-container {{ padding-top: 2rem; max-width: 1400px; }}
-  h1, h2, h3, h4, p, label, div {{ color: {TEXT_PRIMARY}; }}
+    /* App background and typography */
+    .stApp {{ background-color: {DARK_BG}; color: {TEXT_PRIMARY}; }}
+    .main .block-container {{ padding-top: 2rem; max-width: 1400px; }}
+    h1, h2, h3, h4, p, label, div {{ color: {TEXT_PRIMARY}; }}
 
-  [data-testid="stSlider"] {{ padding: 0.1rem 0 0.4rem 0; }}
-  .stSlider label p {{ color: {TEXT_MUTED} !important; font-size: 0.82rem !important; }}
+    /* Sidebar: make it visually consistent with main surface and accent with JD_GREEN */
+    section[data-testid="stSidebar"] {{ background-color: {SURFACE}; border-right: 2px solid {JD_GREEN}; padding: 0.6rem; }}
+    section[data-testid="stSidebar"] .block-container {{ padding: 0.25rem 0.5rem; }}
+    section[data-testid="stSidebar"] .css-1d391kg {{ background: transparent; }}
 
-  [data-testid="metric-container"] {{
-    background-color: {SURFACE};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 1rem 1.1rem;
-  }}
-  [data-testid="stMetricValue"] {{
-    color: {TEXT_PRIMARY} !important;
-    font-size: 1.7rem !important;
-    font-weight: 600 !important;
-  }}
-  [data-testid="stMetricLabel"] {{
-    color: {TEXT_MUTED} !important;
-    font-size: 0.75rem !important;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }}
-  [data-testid="stMetricDelta"] {{ font-size: 0.85rem !important; }}
+    /* Sidebar navigation buttons: full width, left-aligned, subtle hover */
+    section[data-testid="stSidebar"] button {{
+        width: 100%; text-align: left; padding: 10px 12px; margin-bottom: 6px;
+        background: transparent; color: {TEXT_PRIMARY}; border: 1px solid transparent;
+        border-radius: 6px; font-weight: 600; font-size: 0.95rem;
+    }}
+    section[data-testid="stSidebar"] button:hover {{
+        background: rgba(54,124,43,0.08); border-color: rgba(54,124,43,0.12);
+    }}
 
-  .stTabs [data-baseweb="tab-list"] {{
-    background-color: transparent;
-    border-bottom: 1px solid {BORDER};
-    gap: 0; padding: 0;
-  }}
-  .stTabs [data-baseweb="tab"] {{
-    color: {TEXT_MUTED};
-    font-size: 0.88rem;
-    font-weight: 500;
-    padding: 10px 20px;
-    border-radius: 0;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-  }}
-  .stTabs [aria-selected="true"] {{
-    color: {TEXT_PRIMARY} !important;
-    background-color: transparent !important;
-    border-bottom: 2px solid {JD_GREEN} !important;
-  }}
-  .stTabs [data-baseweb="tab-panel"] {{ padding-top: 1.5rem; }}
-  hr {{ border: none; border-top: 1px solid {BORDER}; margin: 1.5rem 0; }}
+    /* Metric, surface and accent rules */
+    [data-testid="metric-container"] {{
+        background-color: {SURFACE};
+        border: 1px solid {BORDER};
+        border-radius: 6px;
+        padding: 1rem 1.1rem;
+    }}
+    [data-testid="stMetricValue"] {{ color: {TEXT_PRIMARY} !important; font-size: 1.7rem !important; font-weight: 600 !important; }}
+    [data-testid="stMetricLabel"] {{ color: {TEXT_MUTED} !important; font-size: 0.75rem !important; text-transform: uppercase; letter-spacing: 0.5px; }}
+
+    /* Slider accents: yellow thumb and range */
+    [data-testid="stSlider"] [data-baseweb="slider"] [role="slider"] {{
+        background: {JD_YELLOW} !important;
+        border: 2px solid {JD_YELLOW} !important;
+        box-shadow: 0 0 0 4px rgba(255, 222, 0, 0.14) !important;
+    }}
+    [data-testid="stSlider"] [data-baseweb="slider"] {{ accent-color: {JD_YELLOW}; }}
+    [data-testid="stSlider"] [data-baseweb="slider"] > div > div > div {{
+        background: {JD_YELLOW} !important;
+    }}
+
+    /* Tabs and selection accents */
+    .stTabs [data-baseweb="tab"] {{ color: {TEXT_MUTED}; }}
+    .stTabs [aria-selected="true"] {{ color: {TEXT_PRIMARY} !important; border-bottom: 2px solid {JD_GREEN} !important; }}
+
+    /* Accent helpers */
+    .accent-green {{ color: {JD_GREEN}; }}
+    .accent-yellow {{ color: {JD_YELLOW}; }}
+
+    /* Charts on dark surface */
+    .plotly-graph-div .main-svg {{ background: transparent; }}
+
+    hr {{ border: none; border-top: 1px solid {BORDER}; margin: 1.5rem 0; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -171,6 +181,264 @@ def forecast_7d(base, sigma, rev_rate, lo, hi, seed):
     return np.array(v)
 
 
+def format_duration(hours_value):
+    total_minutes = int(round(float(hours_value) * 60))
+    hours, minutes = divmod(total_minutes, 60)
+    if hours == 0:
+        return f"{minutes} min"
+    return f"{hours} h {minutes:02d} min"
+
+
+HISTORY_FILES = [
+    {
+        "file": "yield_harvest.csv",
+        "dataset": "cosecha",
+        "maquina": "Cosechadora",
+        "operacion": "Cosecha",
+        "primary": ["rendimiento_real", "costo_real"],
+    },
+    {
+        "file": "seed_depth.csv",
+        "dataset": "siembra",
+        "maquina": "Plantadora",
+        "operacion": "Siembra",
+        "primary": ["profundidad_cm", "semillas_miles_ha"],
+    },
+    {
+        "file": "fertilizer.csv",
+        "dataset": "fertilizacion",
+        "maquina": "Fertilizadora",
+        "operacion": "Fertilizacion",
+        "primary": ["dosis_kg_ha"],
+    },
+    {
+        "file": "harvest_timing.csv",
+        "dataset": "planificacion_cosecha",
+        "maquina": "Cosechadora",
+        "operacion": "Planificacion cosecha",
+        "primary": ["dias_para_cosechar"],
+    },
+    {
+        "file": "speed_fuel.csv",
+        "dataset": "tractor",
+        "maquina": "Tractor",
+        "operacion": "Transporte",
+        "primary": ["combustible_lkm"],
+    },
+]
+
+
+def _ensure_history_defaults(frame, meta):
+    frame = frame.copy()
+    frame["fecha"] = pd.to_datetime(frame["fecha"], errors="coerce")
+    frame["dataset"] = meta["dataset"]
+    frame["maquina"] = frame["maquina"] if "maquina" in frame.columns else meta["maquina"]
+    frame["operacion"] = frame["operacion"] if "operacion" in frame.columns else meta["operacion"]
+    frame["anio"] = frame["fecha"].dt.year
+    frame["mes"] = frame["fecha"].dt.month
+    frame["dia"] = frame["fecha"].dt.day
+    frame["week_start"] = frame["fecha"].dt.to_period("W-MON").dt.start_time
+    frame["fecha_str"] = frame["fecha"].dt.strftime("%Y-%m-%d")
+    return frame
+
+
+@st.cache_data(show_spinner=False)
+def load_operation_history():
+    frames = []
+    for meta in HISTORY_FILES:
+        path = RAW_DATA_DIR / meta["file"]
+        if not path.exists():
+            continue
+        frames.append(_ensure_history_defaults(pd.read_csv(path), meta))
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True, sort=False)
+
+
+def scenario_adjustment(base_value, temp_delta=0.0, rain_delta=0.0, humidity_delta=0.0, sensitivity=0.0):
+    modifier = 1 + sensitivity * (0.6 * temp_delta - 0.25 * rain_delta - 0.12 * humidity_delta)
+    return float(max(0, base_value * modifier))
+
+
+def forecast_future_month(history, target_year, target_month, temp_delta, rain_delta, humidity_delta):
+    if history.empty:
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+
+    month_hist = history[history["mes"] == target_month]
+    year_gap = max(0, target_year - int(history["anio"].max()))
+    trend = 1 + min(0.18, year_gap * 0.025)
+
+    base_metrics = {
+        "fuel_lkm": month_hist["combustible_lkm"].mean() if "combustible_lkm" in month_hist else np.nan,
+        "seeds_tha": month_hist["semillas_miles_ha"].mean() if "semillas_miles_ha" in month_hist else np.nan,
+        "fertilizer_kgha": month_hist["dosis_kg_ha"].mean() if "dosis_kg_ha" in month_hist else np.nan,
+        "yield_t_ha": month_hist["rendimiento_real"].mean() if "rendimiento_real" in month_hist else np.nan,
+    }
+
+    fallback_metrics = pd.Series({
+        "fuel_lkm": history["combustible_lkm"].mean() if "combustible_lkm" in history.columns else 0.0,
+        "seeds_tha": history["semillas_miles_ha"].mean() if "semillas_miles_ha" in history.columns else 0.0,
+        "fertilizer_kgha": history["dosis_kg_ha"].mean() if "dosis_kg_ha" in history.columns else 0.0,
+        "yield_t_ha": history["rendimiento_real"].mean() if "rendimiento_real" in history.columns else 0.0,
+    })
+    base = pd.Series(base_metrics).fillna(fallback_metrics).fillna(0.0)
+    scenario = base.copy()
+    scenario["fuel_lkm"] = scenario_adjustment(base["fuel_lkm"] * trend, temp_delta, rain_delta, humidity_delta, 0.03)
+    scenario["seeds_tha"] = scenario_adjustment(base["seeds_tha"] * trend, temp_delta, rain_delta, humidity_delta, 0.012)
+    scenario["fertilizer_kgha"] = scenario_adjustment(base["fertilizer_kgha"] * trend, temp_delta, rain_delta, humidity_delta, 0.018)
+    scenario["yield_t_ha"] = scenario_adjustment(base["yield_t_ha"] * trend, -temp_delta, rain_delta, humidity_delta, 0.02)
+    return base, scenario
+
+
+def summarize_history_range(history, start_date, end_date):
+    window = history[(history["fecha"] >= pd.Timestamp(start_date)) & (history["fecha"] <= pd.Timestamp(end_date))].copy()
+    if window.empty:
+        nearest_idx = (history["fecha"] - pd.Timestamp(start_date)).abs().idxmin()
+        window = history.loc[[nearest_idx]].copy()
+
+    global_means = history.select_dtypes(include="number").mean(numeric_only=True)
+    window_means = window.select_dtypes(include="number").mean(numeric_only=True)
+
+    def value_or_fallback(column_name):
+        value = window_means.get(column_name, np.nan)
+        if pd.isna(value):
+            value = global_means.get(column_name, np.nan)
+        return value
+
+    summary_rows = []
+    for meta in HISTORY_FILES:
+        subset = window[window["dataset"] == meta["dataset"]]
+        row = {
+            "Maquina": meta["maquina"],
+            "Operacion": meta["operacion"],
+            "Eventos": len(subset),
+        }
+        for key in meta["primary"]:
+            if key in window.columns:
+                value = subset[key].mean() if not subset.empty else np.nan
+                if pd.isna(value):
+                    value = value_or_fallback(key)
+                row[key.replace("_", " ")] = value
+        summary_rows.append(row)
+
+    climate = {
+        "temp_aire_c": value_or_fallback("temp_aire_c"),
+        "precipitacion_mm": value_or_fallback("precipitacion_mm"),
+        "humedad_relativa_pct": value_or_fallback("humedad_relativa_pct"),
+        "combustible_lkm": value_or_fallback("combustible_lkm"),
+        "dosis_kg_ha": value_or_fallback("dosis_kg_ha"),
+        "semillas_miles_ha": value_or_fallback("semillas_miles_ha"),
+    }
+
+    return window, climate, pd.DataFrame(summary_rows)
+
+
+def project_future_range(history, start_date, end_date, temp_c, precipitation_mm, work_hours, engine_hours):
+    future_start = pd.Timestamp(start_date)
+    future_end = pd.Timestamp(end_date)
+    horizon_days = max(1, (future_end - future_start).days + 1)
+
+    month_hist = history[history["mes"] == future_start.month]
+    if month_hist.empty:
+        month_hist = history
+
+    base_temp = month_hist["temp_aire_c"].mean() if "temp_aire_c" in month_hist else history["temp_aire_c"].mean()
+    base_precip = month_hist["precipitacion_mm"].mean() if "precipitacion_mm" in month_hist else history["precipitacion_mm"].mean()
+    base_humidity = month_hist["humedad_relativa_pct"].mean() if "humedad_relativa_pct" in month_hist else history["humedad_relativa_pct"].mean()
+    base_engine = month_hist["horas_motor"].mean() if "horas_motor" in month_hist else history["horas_motor"].mean()
+
+    temp_delta = temp_c - base_temp if pd.notna(base_temp) else 0.0
+    rain_delta = precipitation_mm - base_precip if pd.notna(base_precip) else 0.0
+    humidity_delta = max(-20.0, min(20.0, (precipitation_mm - base_precip) * 0.18 if pd.notna(base_precip) else 0.0))
+
+    base, scenario = forecast_future_month(history, future_start.year, future_start.month, temp_delta, rain_delta, humidity_delta)
+    workload_factor = max(0.5, min(2.0, work_hours / max(1.0, horizon_days * 8.0)))
+    engine_factor = max(0.7, min(1.8, 1.0 + ((engine_hours - base_engine) / 10000.0 if pd.notna(base_engine) else 0.0)))
+
+    prediction = scenario.copy()
+    prediction["fuel_lkm"] = max(0.1, scenario["fuel_lkm"] * workload_factor * engine_factor)
+    prediction["seeds_tha"] = max(0.1, scenario["seeds_tha"] * (0.95 + 0.05 * workload_factor))
+    prediction["fertilizer_kgha"] = max(0.1, scenario["fertilizer_kgha"] * (0.9 + 0.1 * workload_factor))
+    prediction["yield_t_ha"] = max(0.1, scenario["yield_t_ha"] * max(0.82, 1 - max(0.0, temp_delta) * 0.01))
+
+    climate = {
+        "temp_aire_c": float(temp_c),
+        "precipitacion_mm": float(max(0.0, precipitation_mm)),
+        "humedad_relativa_pct": float(np.clip(base_humidity + precipitation_mm * 0.08 - temp_delta * 0.6, 25, 98)) if pd.notna(base_humidity) else 70.0,
+        "combustible_lkm": float(prediction["fuel_lkm"]),
+        "dosis_kg_ha": float(prediction["fertilizer_kgha"]),
+        "semillas_miles_ha": float(prediction["seeds_tha"]),
+    }
+
+    summary_rows = []
+    for meta in HISTORY_FILES:
+        row = {
+            "Maquina": meta["maquina"],
+            "Operacion": meta["operacion"],
+            "Eventos": horizon_days,
+        }
+        for key in meta["primary"]:
+            if key == "combustible_lkm":
+                value = prediction["fuel_lkm"]
+            elif key == "dosis_kg_ha":
+                value = prediction["fertilizer_kgha"]
+            elif key == "semillas_miles_ha":
+                value = prediction["seeds_tha"]
+            elif key == "rendimiento_real":
+                value = prediction["yield_t_ha"]
+            elif key in climate:
+                value = climate[key]
+            else:
+                value = prediction.get(key, np.nan)
+            row[key.replace("_", " ")] = value
+        summary_rows.append(row)
+
+    return climate, pd.DataFrame(summary_rows), base, prediction
+
+
+HISTORICAL_SOURCES = [
+    ("yield_harvest", "yield_harvest.csv"),
+    ("seed_depth", "seed_depth.csv"),
+    ("fertilizer", "fertilizer.csv"),
+    ("harvest_timing", "harvest_timing.csv"),
+    ("speed_fuel", "speed_fuel.csv"),
+]
+
+HISTORY_PRIMARY_METRICS = {
+    "yield_harvest": ["rendimiento_real", "costo_real"],
+    "seed_depth": ["profundidad_cm"],
+    "fertilizer": ["dosis_kg_ha"],
+    "harvest_timing": ["dias_para_cosechar"],
+    "speed_fuel": ["combustible_lkm"],
+}
+
+
+@st.cache_data(show_spinner=False)
+def load_historical_data():
+    frames = []
+    for dataset_name, file_name in HISTORICAL_SOURCES:
+        path = RAW_DATA_DIR / file_name
+        if not path.exists():
+            continue
+
+        frame = pd.read_csv(path)
+        if "fecha" in frame.columns:
+            frame["fecha"] = pd.to_datetime(frame["fecha"], errors="coerce")
+        else:
+            frame["fecha"] = pd.date_range("2020-01-01", "2026-12-31", periods=len(frame))
+
+        frame["dataset"] = dataset_name
+        frame["anio"] = frame["fecha"].dt.year
+        frame["mes"] = frame["fecha"].dt.month
+        frame["week_start"] = frame["fecha"].dt.to_period("W-MON").dt.start_time
+        frames.append(frame)
+
+    if not frames:
+        return pd.DataFrame(columns=["fecha", "dataset", "anio", "mes", "week_start"])
+
+    return pd.concat(frames, ignore_index=True, sort=False)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  SYNTHETIC TRAINING DATA  (shown in tab 4 expander)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -253,32 +521,172 @@ def mnote(txt):
                 f'margin-top:.3rem;">{txt}</p>', unsafe_allow_html=True)
 
 
+def feature_card(title, description, accent, svg_markup):
+    image_uri = f"data:image/svg+xml;utf8,{quote(svg_markup)}"
+    st.markdown(
+        f'''
+        <div style="background: linear-gradient(180deg, {SURFACE} 0%, {SURFACE_HIGH} 100%);
+                    border: 1px solid {BORDER}; border-radius: 18px; padding: 1rem;
+                    height: 100%; box-shadow: 0 10px 28px rgba(0,0,0,0.22);">
+            <img src="{image_uri}" alt="{title}" style="width:100%; height:140px; object-fit:cover;
+                 border-radius:14px; margin-bottom:0.9rem; border:1px solid rgba(255,255,255,0.06);"/>
+            <div style="color:{accent}; font-size:0.76rem; font-weight:800; letter-spacing:1.2px;
+                        text-transform:uppercase; margin-bottom:0.3rem;">{title}</div>
+            <div style="color:{TEXT_PRIMARY}; font-size:1.04rem; font-weight:700; margin-bottom:0.4rem; line-height:1.25;">{description}</div>
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+
+
 # ─── Header ───────────────────────────────────────────────────────────────────
 c1, c2 = st.columns([3, 2])
 with c1:
     st.markdown(f'<div style="font-size:1rem;color:{TEXT_MUTED};font-weight:500;margin-bottom:2px;">'
                 f'<span style="color:{JD_GREEN};font-weight:700;">John Deere</span> · AgroIntel</div>'
                 f'<div style="font-size:1.75rem;font-weight:700;color:{TEXT_PRIMARY};line-height:1.2;">'
-                f'Simulador de Decisiones de Cosecha</div>', unsafe_allow_html=True)
+                f'Simulador y Predicciones</div>', unsafe_allow_html=True)
 with c2:
     st.markdown(f'<div style="text-align:right;padding-top:.8rem;">'
                 f'<span style="color:{TEXT_MUTED};font-size:.8rem;">Reto 03 · Datos · Tec de Monterrey</span>'
                 f'</div>', unsafe_allow_html=True)
 st.markdown("<hr>", unsafe_allow_html=True)
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "Simulador de cosecha",
+# Load history once and expose a left-side navigation
+history = load_operation_history()
+
+# Sidebar navigation using full-width buttons for a more webpage-like look
+PAGES = [
+    "Inicio",
     "Semáforo operacional",
-    "Operaciones del tractor",
-    "Siembra y predicciones",
-    "Historial del modelo",
-])
+    "Gemelo digital",
+    "Simulación",
+]
+
+if "page" not in st.session_state:
+    st.session_state["page"] = "Simulación"
+
+st.sidebar.markdown(
+    f"<div style='padding:8px 6px;color:{TEXT_MUTED};font-weight:700;margin-bottom:6px;'>Navegación</div>",
+    unsafe_allow_html=True,
+)
+
+for p in PAGES:
+    if st.sidebar.button(p, key=f"nav_{p}"):
+        st.session_state["page"] = p
+
+page = st.session_state["page"]
+
+if page == "Inicio":
+    st.markdown(
+        f'<div style="padding:0.25rem 0 0.75rem 0;">'
+        f'<div style="color:{JD_YELLOW};font-size:0.78rem;font-weight:800;letter-spacing:1.3px;text-transform:uppercase;">AgroIntel · John Deere</div>'
+        f'<div style="font-size:2rem;font-weight:800;line-height:1.1;margin-top:0.25rem;">Centro de control agrícola</div>'
+        f'<div style="color:{TEXT_MUTED};font-size:0.95rem;margin-top:0.5rem;max-width:760px;">'
+        'Una vista única para revisar el estado histórico, el gemelo digital y los simuladores de decisión y proyección.'
+        '</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    if history.empty:
+        st.warning("No hay datos históricos disponibles en Data/raw.")
+    else:
+        min_date = history["fecha"].min().date()
+        max_date = history["fecha"].max().date()
+        total_events = len(history)
+        datasets = history["dataset"].nunique()
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Periodo cubierto", f"{min_date} → {max_date}")
+        c2.metric("Total de eventos", f"{total_events}")
+        c3.metric("Conjuntos de datos", f"{datasets}")
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:1.15rem;font-weight:700;margin-bottom:0.9rem;'>Secciones principales</div>", unsafe_allow_html=True)
+
+        card_1 = '''
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420">
+          <defs>
+            <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#367C2B"/>
+              <stop offset="100%" stop-color="#1f4d1a"/>
+            </linearGradient>
+          </defs>
+          <rect width="800" height="420" rx="28" fill="url(#g1)"/>
+          <circle cx="150" cy="120" r="52" fill="#FFDE00" opacity="0.95"/>
+          <rect x="180" y="250" width="360" height="52" rx="20" fill="#212121" opacity="0.95"/>
+          <rect x="220" y="190" width="210" height="88" rx="16" fill="#2C2C2C"/>
+          <rect x="330" y="165" width="86" height="34" rx="10" fill="#212121"/>
+          <circle cx="250" cy="315" r="45" fill="#161616"/>
+          <circle cx="470" cy="315" r="45" fill="#161616"/>
+          <circle cx="250" cy="315" r="22" fill="#FFDE00"/>
+          <circle cx="470" cy="315" r="22" fill="#FFDE00"/>
+          <path d="M520 90 C620 95, 660 180, 590 245 C545 287, 455 274, 430 200 C410 138, 455 86, 520 90 Z" fill="#FFDE00" opacity="0.88"/>
+          <rect x="555" y="120" width="30" height="120" rx="12" fill="#161616"/>
+        </svg>
+        '''
+        card_2 = '''
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420">
+          <rect width="800" height="420" rx="28" fill="#212121"/>
+          <rect x="60" y="56" width="680" height="300" rx="20" fill="#2C2C2C"/>
+          <path d="M100 290 C180 240, 240 320, 330 270 S500 210, 570 250 S670 290, 720 240" fill="none" stroke="#FFDE00" stroke-width="14" stroke-linecap="round"/>
+          <path d="M120 120 L180 150 L240 110 L300 170 L360 140 L420 180 L480 130 L540 165 L600 120 L680 155" fill="none" stroke="#367C2B" stroke-width="12" stroke-linecap="round"/>
+          <circle cx="120" cy="120" r="18" fill="#FFDE00"/>
+          <circle cx="240" cy="110" r="18" fill="#FFDE00"/>
+          <circle cx="360" cy="140" r="18" fill="#FFDE00"/>
+          <circle cx="480" cy="130" r="18" fill="#FFDE00"/>
+          <circle cx="600" cy="120" r="18" fill="#FFDE00"/>
+          <rect x="580" y="250" width="120" height="54" rx="16" fill="#367C2B"/>
+          <rect x="80" y="78" width="200" height="28" rx="10" fill="#161616"/>
+        </svg>
+        '''
+        card_3 = '''
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420">
+          <rect width="800" height="420" rx="28" fill="#161616"/>
+          <rect x="70" y="54" width="660" height="312" rx="22" fill="#212121"/>
+          <rect x="110" y="110" width="130" height="170" rx="18" fill="#367C2B"/>
+          <rect x="280" y="110" width="130" height="120" rx="18" fill="#FFDE00"/>
+          <rect x="450" y="110" width="230" height="90" rx="18" fill="#2C2C2C"/>
+          <rect x="450" y="220" width="230" height="60" rx="18" fill="#2C2C2C"/>
+          <path d="M110 300 H680" stroke="#FFDE00" stroke-width="8" stroke-linecap="round"/>
+          <circle cx="174" cy="176" r="24" fill="#161616"/>
+          <circle cx="345" cy="168" r="22" fill="#161616"/>
+          <path d="M490 132 H645" stroke="#FFDE00" stroke-width="8" stroke-linecap="round"/>
+          <path d="M490 252 H612" stroke="#FFDE00" stroke-width="8" stroke-linecap="round"/>
+        </svg>
+        '''
+
+        cols = st.columns(3, gap="large")
+        with cols[0]:
+            feature_card(
+                "Semáforo",
+                "Revisa si las condiciones están listas para entrar al campo o si conviene esperar.",
+                JD_YELLOW,
+                card_1,
+            )
+        with cols[1]:
+            feature_card(
+                "Gemelo digital",
+                "Observa el estado agregado del campo, el recorrido del tractor y la tendencia semanal.",
+                JD_GREEN,
+                card_2,
+            )
+        with cols[2]:
+            feature_card(
+                "Simulación",
+                "Evalúa decisiones de cosecha, operación y futuros escenarios sin tocar la máquina real.",
+                JD_YELLOW,
+                card_3,
+            )
+    st.markdown("<hr>", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  TAB 1 — SIMULADOR
+#  TAB 1 — PREDICCIONES Y SIMULACIÓN
 # ══════════════════════════════════════════════════════════════════════════════
-with tab1:
+if page == "Simulación":
+
+    st.markdown("### Simulador de decisiones de cosecha")
     ci, co = st.columns([1, 1.8], gap="large")
     with ci:
         slabel("Parámetros de entrada")
@@ -336,11 +744,117 @@ with tab1:
                         f'<span style="color:{JD_GREEN};font-weight:600;">{gain}</span></div>',
                         unsafe_allow_html=True)
 
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown("### Simulador operacional")
+    st.markdown(
+        f'<div style="background:{SURFACE};border:1px solid {BORDER};border-radius:6px;'
+        f'padding:1rem 1.15rem;margin-bottom:1rem;color:{TEXT_MUTED};font-size:.88rem;line-height:1.6;">'
+        'Ajusta escenario climático y de trabajo para ver cómo cambian las métricas operativas clave: '
+        'combustible, semillas y fertilizante. '
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    if history.empty:
+        st.warning("No se encontraron datos históricos en Data/raw.")
+    else:
+        latest_year = int(history["anio"].max())
+        year_options = list(range(latest_year + 1, latest_year + 4))
+        month_names = [
+            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+        ]
+
+        left, right = st.columns([1, 1.8], gap="large")
+        with left:
+            target_year = st.selectbox("Año objetivo", year_options, index=0, key="ops_target_year")
+            target_month = st.selectbox("Mes objetivo", list(range(1, 13)), index=7, format_func=lambda m: month_names[m - 1], key="ops_target_month")
+            temp_delta = st.slider("Cambio de temperatura (°C)", -8.0, 8.0, 0.0, 0.5, key="ops_temp_delta")
+            rain_delta = st.slider("Cambio de precipitación (mm)", -40.0, 40.0, 0.0, 1.0, key="ops_rain_delta")
+            humidity_delta = st.slider("Cambio de humedad relativa (%)", -20.0, 20.0, 0.0, 1.0, key="ops_humidity_delta")
+            work_distance = st.slider("Jornada prevista (km)", 10, 300, 100, 10, key="ops_work_distance")
+
+        base, scenario = forecast_future_month(history, target_year, target_month, temp_delta, rain_delta, humidity_delta)
+        scenario_fuel_total = scenario["fuel_lkm"] * work_distance
+
+        with right:
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Combustible", f"{scenario['fuel_lkm']:.2f} L/km", delta=f"{scenario['fuel_lkm'] - base['fuel_lkm']:+.2f}")
+            m2.metric("Jornada", f"{scenario_fuel_total:.0f} L", delta=f"{(scenario['fuel_lkm'] - base['fuel_lkm']) * work_distance:+.0f}")
+            m3.metric("Semillas", f"{scenario['seeds_tha']:.1f} mil/ha", delta=f"{scenario['seeds_tha'] - base['seeds_tha']:+.1f}")
+            m4.metric("Fertilizante", f"{scenario['fertilizer_kgha']:.1f} kg/ha", delta=f"{scenario['fertilizer_kgha'] - base['fertilizer_kgha']:+.1f}")
+
+            # st.caption(
+            #     f"Escenario para {month_names[target_month - 1]} de {target_year}. "
+            #     "Este resumen reemplaza la tabla detallada porque los KPI ya muestran el cambio relevante."
+            # )
+
+            m5, _, _, _ = st.columns(4)
+            m5.metric("Rendimiento", f"{scenario['yield_t_ha']:.2f} t/ha", delta=f"{scenario['yield_t_ha'] - base['yield_t_ha']:+.2f}")
+
+            forecast_table = pd.DataFrame({
+                "Variable": ["Combustible", "Semillas plantadas", "Fertilizante", "Rendimiento"],
+                "Base": [base["fuel_lkm"], base["seeds_tha"], base["fertilizer_kgha"], base["yield_t_ha"]],
+                "Escenario": [scenario["fuel_lkm"], scenario["seeds_tha"], scenario["fertilizer_kgha"], scenario["yield_t_ha"]],
+            })
+            forecast_table["Cambio"] = forecast_table["Escenario"] - forecast_table["Base"]
+            st.dataframe(forecast_table, use_container_width=True, hide_index=True)
+
+            st.caption(
+                f"Proyección para {month_names[target_month - 1]} de {target_year} con ajuste de clima. "
+                "Los cambios positivos o negativos reflejan el escenario what-if frente al patrón histórico."
+            )
+
+    # st.markdown("<hr>", unsafe_allow_html=True)
+    # st.markdown("### Predicciones futuras")
+    # st.markdown(
+    #     f'<div style="background:{SURFACE};border:1px solid {BORDER};border-radius:6px;'
+    #     f'padding:1rem 1.15rem;margin-bottom:1rem;color:{TEXT_MUTED};font-size:.88rem;line-height:1.6;">'
+    #     'Aquí puedes proyectar un escenario futuro y comparar el comportamiento esperado con el patrón histórico. '
+    #     'Se mantiene una vista compacta para no duplicar el simulador operacional.'
+    #     '</div>',
+    #     unsafe_allow_html=True,
+    # )
+
+    # if history.empty:
+    #     st.warning("No se encontraron datos históricos en Data/raw.")
+    # else:
+    #     latest_year = int(history["anio"].max())
+    #     year_options = list(range(latest_year + 1, latest_year + 4))
+    #     month_names = [
+    #         "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+    #         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+    #     ]
+
+    #     left, right = st.columns([1, 1.8], gap="large")
+    #     with left:
+    #         target_year = st.selectbox("Año objetivo", year_options, index=0, key="pred_target_year")
+    #         target_month = st.selectbox("Mes objetivo", list(range(1, 13)), index=7, format_func=lambda m: month_names[m - 1], key="pred_target_month")
+    #         temp_delta = st.slider("Cambio de temperatura (°C)", -8.0, 8.0, 0.0, 0.5, key="pred_temp_delta")
+    #         rain_delta = st.slider("Cambio de precipitación (mm)", -40.0, 40.0, 0.0, 1.0, key="pred_rain_delta")
+    #         humidity_delta = st.slider("Cambio de humedad relativa (%)", -20.0, 20.0, 0.0, 1.0, key="pred_humidity_delta")
+    #         work_distance = st.slider("Jornada prevista (km)", 10, 300, 100, 10, key="pred_work_distance")
+
+    #     base, scenario = forecast_future_month(history, target_year, target_month, temp_delta, rain_delta, humidity_delta)
+    #     scenario_fuel_total = scenario["fuel_lkm"] * work_distance
+
+    #     with right:
+    #         m1, m2, m3, m4 = st.columns(4)
+    #         m1.metric("Combustible", f"{scenario['fuel_lkm']:.2f} L/km", delta=f"{scenario['fuel_lkm'] - base['fuel_lkm']:+.2f}")
+    #         m2.metric("Jornada", f"{scenario_fuel_total:.0f} L", delta=f"{(scenario['fuel_lkm'] - base['fuel_lkm']) * work_distance:+.0f}")
+    #         m3.metric("Semillas", f"{scenario['seeds_tha']:.1f} mil/ha", delta=f"{scenario['seeds_tha'] - base['seeds_tha']:+.1f}")
+    #         m4.metric("Fertilizante", f"{scenario['fertilizer_kgha']:.1f} kg/ha", delta=f"{scenario['fertilizer_kgha'] - base['fertilizer_kgha']:+.1f}")
+
+    #         st.caption(
+    #             f"Proyección para {month_names[target_month - 1]} de {target_year} con ajuste de clima. "
+    #             "Se omite la tabla porque no agrega más señal que estos KPI."
+    #         )
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  TAB 2 — SEMÁFORO
 # ══════════════════════════════════════════════════════════════════════════════
-with tab2:
+elif page == "Semáforo operacional":
     _, cc, _ = st.columns([1,2,1])
     with cc:
         ic, sw, sd = {"green": (JD_GREEN, "PROCEDER","Condiciones favorables para iniciar la cosecha."),
@@ -375,370 +889,160 @@ with tab2:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  TAB 3 — OPERACIONES DEL TRACTOR
+#  TAB 4 — DIGITAL TWIN
 # ══════════════════════════════════════════════════════════════════════════════
-with tab3:
+elif page == "Gemelo digital":
+    history = load_operation_history()
 
-    # a.1 — Ruta óptima ───────────────────────────────────────────────────────
-    slabel("a.1 · Ruta óptima de cobertura")
-    ri, ro = st.columns([1, 2], gap="large")
+    slabel("Gemelo digital")
 
-    with ri:
-        fl_  = st.slider("Largo del campo (m)",        50,  500, 300, 10)
-        fw_  = st.slider("Ancho del campo (m)",         50,  500, 200, 10)
-        mw_  = st.slider("Ancho de trabajo (m)",        2.0, 12.0, 4.5, 0.5)
-        spd_ = st.slider("Velocidad de trabajo (km/h)", 3.0, 12.0, 7.0, 0.5)
-
-    r = plan_boustrophedon(fl_, fw_, mw_, spd_)
-
-    with ro:
-        rm1,rm2,rm3,rm4 = st.columns(4)
-        rm1.metric("Distancia total",  f"{r['dist_km']:.1f} km")
-        rm2.metric("Tiempo estimado",  f"{r['time_h']:.1f} h")
-        rm3.metric("Combustible est.", f"{r['fuel_l']:.0f} L")
-        rm4.metric("Área cubierta",    f"{r['area_ha']:.1f} ha")
-
-        fig_r = go.Figure()
-        fig_r.add_shape(type="rect", x0=0, y0=0, x1=r["W"], y1=r["L"],
-                        line=dict(color=BORDER, width=1.5))
-        for i in range(r["n"]):
-            x0, x1 = i*r["mw"], min((i+1)*r["mw"], r["W"])
-            fig_r.add_shape(type="rect", x0=x0, y0=0, x1=x1, y1=r["L"],
-                            fillcolor=f"rgba(54,124,43,{.25 if i%2==0 else .12})",
-                            line=dict(width=0))
-        fig_r.add_trace(go.Scatter(x=r["px"], y=r["py"], mode="lines",
-                                   line=dict(color=JD_GREEN, width=1.5), name="Trayectoria"))
-        fig_r.add_trace(go.Scatter(x=[r["mw"]/2], y=[0], mode="markers",
-                                   marker=dict(symbol="circle", size=10, color=JD_YELLOW),
-                                   name="Inicio"))
-        fig_r.update_layout(
-            title=dict(text=f"Boustrofedón — {r['n']} pasadas, {r['turns']} giros",
-                       font=dict(size=13, color=TEXT_MUTED)),
-            xaxis_title="Ancho (m)", yaxis_title="Largo (m)",
-            template="plotly_dark", **CL,
-            xaxis=dict(gridcolor=BORDER),
-            yaxis=dict(scaleanchor="x", scaleratio=1, gridcolor=BORDER),
+    if history.empty:
+        st.warning("No se encontraron datos históricos en Data/raw.")
+    else:
+        min_date = history["fecha"].min().date()
+        max_date = history["fecha"].max().date()
+        default_start = (pd.Timestamp(max_date) - pd.Timedelta(days=6)).date()
+        if default_start < min_date:
+            default_start = min_date
+        selected_range = st.date_input(
+            "Rango de fechas",
+            value=(default_start, max_date),
+            min_value=min_date,
+            max_value=max_date,
         )
-        st.plotly_chart(fig_r, use_container_width=True)
-        mnote("Optimización: patrón boustrofedón con giros de 180° en cabecera (radio = ancho_trabajo / 2). "
-              "Mínimo de giros para campo rectangular.")
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+        if isinstance(selected_range, tuple) and len(selected_range) == 2:
+            range_start, range_end = selected_range
+        else:
+            range_start = selected_range
+            range_end = selected_range
 
-    # a.2 — Velocidad óptima ──────────────────────────────────────────────────
-    slabel("a.2 · Velocidad óptima — combustible, tiempo y probabilidad de falla")
-    vi, vo = st.columns([1, 2], gap="large")
+        if range_start > range_end:
+            range_start, range_end = range_end, range_start
 
-    with vi:
-        dist_km_  = st.slider("Distancia a recorrer (km)",  1.0, 60.0, 15.0, 0.5)
-        eng_hrs_  = st.slider("Horas de motor acumuladas ",  0,   5000, 1200, 50)
+        window, climate, summary_df = summarize_history_range(history, range_start, range_end)
+        range_start_ts = pd.Timestamp(range_start)
+        range_end_ts = pd.Timestamp(range_end)
 
-    v, fuel, time_h, fail, opt_v = analyze_speed(dist_km_, eng_hrs_)
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        metrics = [
+            (c1, "Temperatura", climate["temp_aire_c"], lambda v: f"{v:.1f} °C"),
+            (c2, "Precipitación", climate["precipitacion_mm"], lambda v: f"{v:.1f} mm"),
+            (c3, "Humedad relativa", climate["humedad_relativa_pct"], lambda v: f"{v:.0f}%"),
+            (c4, "Combustible", climate["combustible_lkm"], lambda v: f"{v:.2f} L/km"),
+            (c5, "Fertilizante", climate["dosis_kg_ha"], lambda v: f"{v:.1f} kg/ha"),
+            (c6, "Semillas", climate["semillas_miles_ha"], lambda v: f"{v:.1f} mil/ha"),
+        ]
+        for col, label, value, formatter in metrics:
+            with col:
+                col.metric(label, formatter(value))
 
-    with vo:
-        oi = int(np.argmin(np.abs(v - opt_v)))
-        vm1,vm2,vm3 = st.columns(3)
-        vm1.metric("Velocidad óptima",        f"{opt_v:.1f} km/h")
-        vm2.metric("Combustible a v óptima",  f"{fuel[oi]:.1f} L")
-        vm3.metric("P(falla) a v óptima",     f"{fail[oi]:.2f}%")
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.caption(f"Rango: {range_start_ts.date()} a {range_end_ts.date()} · {len(window)} registros")
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
-        fig_sp = make_subplots(rows=1, cols=3,
-            subplot_titles=["Combustible total (L)", "Tiempo (h)", "P(falla) (%)"])
-        for col_i, (ydata, color) in enumerate(
-            [(fuel, JD_GREEN), (time_h, "#5B9BD5"), (fail, "#CC5555")], 1):
-            fig_sp.add_trace(go.Scatter(x=v, y=ydata, mode="lines",
-                             line=dict(color=color, width=2), showlegend=False), row=1, col=col_i)
-            fig_sp.add_vline(x=opt_v, line_color=JD_YELLOW, line_dash="dash",
-                             line_width=1.5, row=1, col=col_i)
-        fig_sp.update_layout(
-            title=dict(text=f"Velocidad óptima Pareto: {opt_v:.1f} km/h",
-                       font=dict(size=13, color=TEXT_MUTED)),
-            template="plotly_dark", **{**CL},
-        )
-        for i in range(1, 4):
-            fig_sp.update_xaxes(title_text="km/h", gridcolor=BORDER, row=1, col=i)
-            fig_sp.update_yaxes(gridcolor=BORDER, row=1, col=i)
-        st.plotly_chart(fig_sp, use_container_width=True)
-        mnote("Optimización Pareto multi-objetivo: suma de scores normalizados [0–1] para combustible, "
-              "tiempo y P(falla). La línea amarilla marca el mínimo compuesto.")
+        range_series = window.copy()
+        range_series["week_start"] = pd.to_datetime(range_series["week_start"], errors="coerce")
+        trend = range_series.groupby("week_start").agg(
+            temp_aire_c=("temp_aire_c", "mean"),
+            precipitacion_mm=("precipitacion_mm", "mean"),
+            humedad_relativa_pct=("humedad_relativa_pct", "mean"),
+        ).reset_index()
+        if not trend.empty:
+            fig_twin = go.Figure()
+            fig_twin.add_trace(go.Scatter(x=trend["week_start"], y=trend["temp_aire_c"], mode="lines+markers", name="Temperatura", line=dict(color=JD_GREEN, width=2)))
+            fig_twin.add_trace(go.Scatter(x=trend["week_start"], y=trend["precipitacion_mm"], mode="lines+markers", name="Precipitación", line=dict(color=JD_YELLOW, width=2)))
+            fig_twin.add_trace(go.Scatter(x=trend["week_start"], y=trend["humedad_relativa_pct"], mode="lines+markers", name="Humedad relativa", line=dict(color=JD_YELLOW, width=2)))
+            fig_twin.update_layout(
+                title=dict(text="Tendencia agregada del rango", font=dict(size=13, color=TEXT_MUTED)),
+                xaxis_title="Semana",
+                yaxis_title="Valor",
+                template="plotly_dark",
+                **CL,
+                **AX,
+            )
+            st.plotly_chart(fig_twin, use_container_width=True)
 
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.subheader("Operaciones del tractor dentro del gemelo digital")
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  TAB 4 — SIEMBRA Y PREDICCIONES
-# ══════════════════════════════════════════════════════════════════════════════
-with tab4:
+        st.markdown("### a.1 · Ruta óptima de cobertura")
+        ri, ro = st.columns([1, 2], gap="large")
 
-    # b.1 Profundidad  +  b.4 Fertilizante ───────────────────────────────────
-    cs, cf = st.columns(2, gap="large")
+        with ri:
+            fl_ = st.slider("Largo del campo (m)", 50, 500, 300, 10)
+            fw_ = st.slider("Ancho del campo (m)", 50, 500, 200, 10)
+            mw_ = st.slider("Ancho de trabajo (m)", 2.0, 12.0, 4.5, 0.5)
+            spd_ = st.slider("Velocidad de trabajo (km/h)", 3.0, 12.0, 7.0, 0.5)
 
-    with cs:
-        slabel("b.1 · Profundidad óptima de semilla")
-        crop_  = st.selectbox("Cultivo", ["Maíz", "Trigo", "Soya", "Sorgo"])
-        smoist = st.slider("Humedad del suelo (%)",    10, 45, 22)
-        stemp  = st.slider("Temperatura del suelo (°C)", 5, 35, 18)
-        depth  = seed_depth_cm(smoist, stemp, crop_)
+        r = plan_boustrophedon(fl_, fw_, mw_, spd_)
 
-        fig_g = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=depth,
-            number=dict(suffix=" cm", font=dict(size=28, color=TEXT_PRIMARY)),
-            gauge=dict(
-                axis=dict(range=[1.5, 8.0], tickcolor=TEXT_MUTED),
-                bar=dict(color=JD_GREEN), bgcolor=SURFACE_HIGH, borderwidth=0,
-                steps=[dict(range=[1.5,3.0],color="#1a3d1a"),
-                       dict(range=[3.0,5.5],color="#213d21"),
-                       dict(range=[5.5,8.0],color="#2e1a1a")],
-                threshold=dict(line=dict(color=JD_YELLOW,width=2), value=depth),
-            ),
-        ))
-        fig_g.update_layout(title=dict(text="Profundidad recomendada",
-                                       font=dict(size=13,color=TEXT_MUTED)),
-                            height=250, **CL)
-        fig_g.update_layout(margin=dict(l=20, r=20, t=36, b=10))
-        st.plotly_chart(fig_g, use_container_width=True)
-        mnote("Modelo: tabla de respuesta agronómica con ajuste por humedad y temperatura del suelo. "
-              "NN candidata: MLP 3→16→8→1 (ReLU).")
+        with ro:
+            rm1, rm2, rm3, rm4 = st.columns(4)
+            rm1.metric("Distancia total", f"{r['dist_km']:.1f} km")
+            rm2.metric("Tiempo estimado", format_duration(r['time_h']))
+            rm3.metric("Combustible est.", f"{r['fuel_l']:.0f} L")
+            rm4.metric("Área cubierta", f"{r['area_ha']:.1f} ha")
 
-    with cf:
-        slabel("b.4 · Dosis de fertilizante nitrogenado")
-        n_ppm_  = st.slider("Nitrógeno en suelo (ppm)",         5,  60, 20)
-        y_tgt_  = st.slider("Objetivo rendimiento (t/ha)",      3.0,10.0,6.5,0.5)
-        stage_  = st.selectbox("Etapa del cultivo",
-                               ["Siembra","Vegetativo","Reproductivo","Madurez"])
-        dose    = fert_dose(n_ppm_, y_tgt_, stage_)
+            fig_r = go.Figure()
+            fig_r.add_shape(type="rect", x0=0, y0=0, x1=r["W"], y1=r["L"],
+                            line=dict(color=JD_GREEN, width=2), fillcolor="rgba(54,124,43,0.06)")
+            for i in range(r["n"]):
+                x0, x1 = i * r["mw"], min((i + 1) * r["mw"], r["W"])
+                fig_r.add_shape(type="rect", x0=x0, y0=0, x1=x1, y1=r["L"],
+                                fillcolor=f"rgba(54,124,43,{0.25 if i % 2 == 0 else 0.12})",
+                                line=dict(width=0))
+            fig_r.add_trace(go.Scatter(x=r["px"], y=r["py"], mode="lines",
+                                       line=dict(color=JD_YELLOW, width=2.5), name="Trayectoria"))
+            fig_r.add_trace(go.Scatter(x=[r["mw"] / 2], y=[0], mode="markers",
+                                       marker=dict(symbol="circle", size=10, color=JD_GREEN, line=dict(color=JD_YELLOW, width=1)),
+                                       name="Inicio"))
+            fig_r.update_layout(
+                title=dict(text=f"Boustrofedón — {r['n']} pasadas, {r['turns']} giros",
+                           font=dict(size=13, color=TEXT_MUTED)),
+                xaxis_title="Ancho (m)", yaxis_title="Largo (m)",
+                template="plotly_dark", **CL,
+                xaxis=dict(gridcolor=BORDER),
+                yaxis=dict(scaleanchor="x", scaleratio=1, gridcolor=BORDER),
+            )
+            st.plotly_chart(fig_r, use_container_width=True)
+            mnote("Optimización: patrón boustrofedón con giros de 180° en cabecera (radio = ancho_trabajo / 2). "
+                  "Mínimo de giros para campo rectangular.")
 
-        n_range = np.linspace(0, 280, 300)
-        y_curve = (y_tgt_*1.18) * (1 - np.exp(-0.008*(n_range + n_ppm_*3.9)))
-        fig_f   = go.Figure()
-        fig_f.add_trace(go.Scatter(x=n_range, y=y_curve, mode="lines",
-                                   line=dict(color=JD_GREEN, width=2), name="Respuesta al N"))
-        fig_f.add_vline(x=dose, line_color=JD_YELLOW, line_dash="dash", line_width=1.8,
-                        annotation_text=f"{dose:.0f} kg/ha",
-                        annotation_font_color=JD_YELLOW, annotation_font_size=11)
-        fig_f.update_layout(
-            title=dict(text="Curva de respuesta N (Mitscherlich-Baule)",
-                       font=dict(size=13,color=TEXT_MUTED)),
-            xaxis_title="N aplicado (kg/ha)", yaxis_title="Rendimiento esperado (t/ha)",
-            template="plotly_dark", height=250, **CL, **AX)
-        st.plotly_chart(fig_f, use_container_width=True)
-        mnote("Modelo: ecuación de saturación Mitscherlich-Baule. "
-              "NN candidata: Monotone MLP (constraint de monotonicidad).")
+        st.markdown("### a.2 · Velocidad óptima — combustible, tiempo y probabilidad de falla")
+        vi, vo = st.columns([1, 2], gap="large")
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+        with vi:
+            dist_km_ = st.slider("Distancia a recorrer (km)", 1.0, 60.0, 15.0, 0.5)
+            eng_hrs_ = st.slider("Horas de motor acumuladas", 0, 5000, 1200, 50)
 
-    # b.6 Mapa de posicionamiento ─────────────────────────────────────────────
-    slabel("b.6 · Mapa de posicionamiento de semillas")
-    mc1_, mc2_ = st.columns([1, 3])
-    with mc1_:
-        map_seed_ = st.slider("Variabilidad del terreno", 1, 99, 42)
-        thresh_   = st.slider("Umbral zona óptima (%)", 40, 80, 60)
-    qmap = field_quality_map(seed=map_seed_)
-    with mc2_:
-        fig_m = go.Figure()
-        fig_m.add_trace(go.Heatmap(z=qmap,
-            colorscale=[[0,"#3d0c0c"],[.4,"#7a3a00"],[.6,"#2e4a1a"],[1,JD_GREEN]],
-            colorbar=dict(title=dict(text="Calidad", font=dict(color=TEXT_MUTED)),
-                          tickfont=dict(color=TEXT_MUTED)),
-            zmin=0, zmax=1))
-        fig_m.add_trace(go.Contour(z=qmap,
-            contours=dict(start=thresh_/100,end=1.0,size=.5,coloring="none"),
-            line=dict(color=JD_YELLOW,width=1.5,dash="dot"),showscale=False,
-            name=f"Zona óptima (>{thresh_}%)"))
-        fig_m.update_layout(
-            title=dict(text="Calidad del suelo — zonas recomendadas para siembra",
-                       font=dict(size=13,color=TEXT_MUTED)),
-            xaxis_title="Posición E-O", yaxis_title="Posición N-S",
-            template="plotly_dark", height=320, **CL, **AX)
-        st.plotly_chart(fig_m, use_container_width=True)
-        mnote("Modelo: interpolación espacial con blobs gaussianos (proxy de variabilidad en materia orgánica, "
-              "drenaje y textura). NN candidata: Gaussian Process Regression (Kriging).")
+        v, fuel, time_h, fail, opt_v = analyze_speed(dist_km_, eng_hrs_)
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+        with vo:
+            oi = int(np.argmin(np.abs(v - opt_v)))
+            vm1, vm2, vm3 = st.columns(3)
+            vm1.metric("Velocidad óptima", f"{opt_v:.1f} km/h")
+            vm2.metric("Combustible a v óptima", f"{fuel[oi]:.1f} L")
+            vm3.metric("P(falla) a v óptima", f"{fail[oi]:.2f}%")
 
-    # b.2 Cuándo cosechar  +  b.7 Caudal/Presión ─────────────────────────────
-    ch_, cn_ = st.columns(2, gap="large")
-
-    with ch_:
-        slabel("b.2 · ¿Cuándo cosechar?")
-        h_crop_ = st.selectbox("Cultivo ", ["Maíz","Trigo","Soya","Sorgo"])
-        gdd_    = st.slider("GDD acumulados",            800,  3500, 2200, 50)
-        gmoist_ = st.slider("Humedad del grano (%) ",    12,   35,   24)
-        atemp_  = st.slider("Temperatura promedio (°C)", 15,   38,   26)
-        days_,  label_, hcolor_ = harvest_timing(gdd_, gmoist_, h_crop_, atemp_)
-
-        st.markdown(f'<div style="background:{SURFACE};border:1px solid {BORDER};'
-                    f'border-radius:6px;padding:1rem 1.2rem;margin:.8rem 0;">'
-                    f'<div style="font-size:.75rem;color:{TEXT_MUTED};text-transform:uppercase;'
-                    f'letter-spacing:.5px;margin-bottom:.3rem;">Estado</div>'
-                    f'<div style="font-size:1.4rem;font-weight:700;color:{hcolor_};">{label_}</div>'
-                    f'<div style="color:{TEXT_MUTED};font-size:.88rem;margin-top:.3rem;">'
-                    f'{"Condiciones óptimas alcanzadas." if days_<5 else f"~{days_:.0f} días para condiciones óptimas."}'
-                    f'</div></div>', unsafe_allow_html=True)
-
-        gdd_target_ = {"Maíz":2800,"Trigo":2000,"Soya":2600,"Sorgo":2400}[h_crop_]
-        fig_gdd = go.Figure()
-        fig_gdd.add_trace(go.Bar(
-            x=["GDD acumulados","GDD restantes"],
-            y=[min(gdd_, gdd_target_), max(0, gdd_target_-gdd_)],
-            marker_color=[JD_GREEN, SURFACE_HIGH],
-            text=[f"{min(gdd_,gdd_target_):.0f}", f"{max(0,gdd_target_-gdd_):.0f}"],
-            textposition="inside", textfont=dict(color=TEXT_PRIMARY)))
-        fig_gdd.update_layout(
-            title=dict(text=f"GDD — meta: {gdd_target_}",font=dict(size=13,color=TEXT_MUTED)),
-            yaxis_title="Grados-día (°C·día)", template="plotly_dark",
-            height=220, **CL, **AX, showlegend=False)
-        st.plotly_chart(fig_gdd, use_container_width=True)
-        mnote("Modelo: grados-día de crecimiento (GDD, base 10°C) + secado del grano (~0.7%/día). "
-              "NN candidata: LSTM 1-capa 32 unidades con GDD diarios como secuencia.")
-
-    with cn_:
-        slabel("b.7 · Caudal y presión de fertilizante")
-        NOZZLE_LABELS = {"015 (estrecho)":"015","02 (estándar)":"02",
-                         "03 (medio)":"03","04 (amplio)":"04","05 (grueso)":"05"}
-        p_bar_   = st.slider("Presión (bar)",                  1.0, 6.0, 3.0, 0.1)
-        nzl_lbl_ = st.selectbox("Boquilla (ISO 10625)", list(NOZZLE_LABELS.keys()))
-        nzl_key_ = NOZZLE_LABELS[nzl_lbl_]
-        nspd_    = st.slider("Velocidad del tractor (km/h) ",  3.0, 12.0, 7.0, 0.5)
-        nsp_m_   = st.slider("Distancia entre boquillas (m)",  0.25, 1.5, 0.5, 0.05)
-        fl_lmin_, app_ = nozzle_flow(p_bar_, nzl_key_, nspd_, nsp_m_)
-
-        nm1, nm2 = st.columns(2)
-        nm1.metric("Caudal por boquilla", f"{fl_lmin_:.2f} L/min")
-        nm2.metric("Tasa de aplicación",  f"{app_:.0f} L/ha")
-
-        KS = {"015":0.24,"02":0.33,"03":0.49,"04":0.65,"05":0.82}
-        p_range_ = np.linspace(0.5, 7.0, 100)
-        fig_n = go.Figure()
-        for code, k in KS.items():
-            sel = (code == nzl_key_)
-            fig_n.add_trace(go.Scatter(x=p_range_, y=k*np.sqrt(p_range_), mode="lines",
-                name=code, line=dict(color=JD_GREEN if sel else BORDER,
-                                     width=2.5 if sel else 1)))
-        fig_n.add_vline(x=p_bar_, line_color=JD_YELLOW, line_dash="dash", line_width=1.5,
-                        annotation_text=f"{p_bar_} bar",
-                        annotation_font_color=JD_YELLOW, annotation_font_size=11)
-        fig_n.update_layout(
-            title=dict(text="Caudal vs presión por tamaño de boquilla",
-                       font=dict(size=13,color=TEXT_MUTED)),
-            xaxis_title="Presión (bar)", yaxis_title="Caudal (L/min)",
-            template="plotly_dark", height=220, **CL, **AX)
-        st.plotly_chart(fig_n, use_container_width=True)
-        mnote("Modelo: ecuación hidráulica ISO 10625 — Q = K·√P. No requiere NN.")
-
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    # b.3 Temperatura  +  b.5 Humedad ─────────────────────────────────────────
-    ct_, chu_ = st.columns(2, gap="large")
-    days_lbl  = [f"Día {i+1}" for i in range(7)]
-
-    with ct_:
-        slabel("b.3 · Pronóstico de temperatura (7 días)")
-        btemp_ = st.slider("Temperatura actual (°C)", 5, 42, 27)
-        tf     = forecast_7d(btemp_, sigma=2.2, rev_rate=0.12, lo=btemp_-12, hi=btemp_+12, seed=42)
-        fig_t  = go.Figure()
-        fig_t.add_trace(go.Scatter(x=days_lbl, y=tf, mode="lines+markers",
-            line=dict(color=JD_GREEN,width=2), marker=dict(size=6,color=JD_GREEN),
-            fill="tozeroy", fillcolor="rgba(54,124,43,.1)"))
-        fig_t.add_hline(y=35, line_color="#CC5555", line_dash="dot", line_width=1,
-                        annotation_text="Estrés térmico (35 °C)",
-                        annotation_font_color="#CC5555", annotation_font_size=10)
-        fig_t.update_layout(title=dict(text="Temperatura estimada (°C)",
-            font=dict(size=13,color=TEXT_MUTED)), yaxis_title="°C",
-            template="plotly_dark", height=240, **CL,
-            xaxis=dict(gridcolor=BORDER),
-            yaxis=dict(gridcolor=BORDER, range=[0, 45]))
-        st.plotly_chart(fig_t, use_container_width=True)
-        mnote("Modelo: paseo aleatorio con regresión a la media. "
-              "NN candidata: LSTM / Temporal Fusion Transformer para datos reales.")
-
-    with chu_:
-        slabel("b.5 · Pronóstico de humedad del suelo (7 días)")
-        bhum_ = st.slider("Humedad actual del suelo (%)", 15, 55, 30)
-        hf    = forecast_7d(bhum_, sigma=3.5, rev_rate=0.14, lo=15, hi=95, seed=7)
-        fig_h = go.Figure()
-        fig_h.add_hrect(y0=20, y1=50, fillcolor="rgba(54,124,43,.07)", line_width=0,
-                        annotation_text="Rango óptimo",
-                        annotation_font_color=TEXT_MUTED, annotation_font_size=10)
-        fig_h.add_trace(go.Scatter(x=days_lbl, y=hf, mode="lines+markers",
-            line=dict(color="#5B9BD5",width=2), marker=dict(size=6,color="#5B9BD5")))
-        fig_h.update_layout(title=dict(text="Humedad del suelo estimada (%)",
-            font=dict(size=13,color=TEXT_MUTED)), yaxis_title="%",
-            template="plotly_dark", height=240, **CL,
-            xaxis=dict(gridcolor=BORDER),
-            yaxis=dict(gridcolor=BORDER, range=[10, 65]))
-        st.plotly_chart(fig_h, use_container_width=True)
-        mnote("Modelo: proceso autorregresivo con reversión a la media. "
-              "NN candidata: Random Forest / GBT para datos tabulares en tiempo real.")
-
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    # c — Datos de entrenamiento ───────────────────────────────────────────────
-    with st.expander("c · Datasets de entrenamiento sintéticos (300 registros × 4 modelos)"):
-        st.markdown(f'<p style="color:{TEXT_MUTED};font-size:.85rem;margin-bottom:1rem;">'
-                    'Generados con fórmulas agronómicas + ruido gaussiano (seed=42). '
-                    'Disponibles en <code>Data/raw/*.csv</code> (500 filas cada uno). '
-                    'Ejecuta <code>python3 Data/generate_all.py</code> para regenerarlos.'
-                    '</p>', unsafe_allow_html=True)
-        df_s, df_f, df_h, df_v = make_training_data()
-        dt1, dt2, dt3, dt4 = st.tabs(["Profundidad semilla","Fertilizante",
-                                       "Timing cosecha","Combustible vs velocidad"])
-        with dt1:
-            st.dataframe(df_s.head(20), use_container_width=True)
-            st.caption(f"{len(df_s)} registros · Y = tabla_agronómica(humedad,temp,cultivo) + N(0,0.3)")
-        with dt2:
-            st.dataframe(df_f.head(20), use_container_width=True)
-            st.caption(f"{len(df_f)} registros · Y = Mitscherlich(n_suelo, objetivo) + N(0,8)")
-        with dt3:
-            st.dataframe(df_h.head(20), use_container_width=True)
-            st.caption(f"{len(df_h)} registros · Y = max(días_GDD, días_secado) + N(0,1.5)")
-        with dt4:
-            st.dataframe(df_v.head(20), use_container_width=True)
-            st.caption(f"{len(df_v)} registros · Y = 5.5/v + 0.14v + N(0,0.08)")
+            fig_sp = make_subplots(rows=1, cols=3,
+                subplot_titles=["Combustible total (L)", "Tiempo (h)", "P(falla) (%)"])
+            for col_i, (ydata, color) in enumerate(
+                [(fuel, JD_GREEN), (time_h, JD_YELLOW), (fail, "#E0C24D")], 1):
+                fig_sp.add_trace(go.Scatter(x=v, y=ydata, mode="lines",
+                                 line=dict(color=color, width=2), showlegend=False), row=1, col=col_i)
+                fig_sp.add_vline(x=opt_v, line_color=JD_YELLOW, line_dash="dash",
+                                 line_width=1.5, row=1, col=col_i)
+            fig_sp.update_layout(
+                title=dict(text=f"Velocidad óptima Pareto: {opt_v:.1f} km/h",
+                           font=dict(size=13, color=TEXT_MUTED)),
+                template="plotly_dark", **{**CL},
+            )
+            for i in range(1, 4):
+                fig_sp.update_xaxes(title_text="km/h", gridcolor=BORDER, row=1, col=i)
+                fig_sp.update_yaxes(gridcolor=BORDER, row=1, col=i)
+            st.plotly_chart(fig_sp, use_container_width=True)
+            mnote("Optimización Pareto multi-objetivo: suma de scores normalizados [0–1] para combustible, "
+                  "tiempo y P(falla). La línea amarilla marca el mínimo compuesto.")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  TAB 5 — HISTORIAL DEL MODELO
-# ══════════════════════════════════════════════════════════════════════════════
-with tab5:
-    slabel("Rendimiento del modelo — validación leave-one-out en 30 cosechas")
-    mc1,mc2,mc3 = st.columns(3)
-    mc1.metric("Error absoluto medio", f"{MAE:.2f} t/ha")
-    mc2.metric("Cosechas validadas", "30")
-    mc3.metric("Historial total", "200")
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    vc1, vc2 = st.columns(2)
-    with vc1:
-        fig_v = go.Figure()
-        fig_v.add_trace(go.Scatter(x=VAL["Real"], y=VAL["Pred"], mode="markers",
-            marker=dict(size=8,color=JD_GREEN,opacity=.8),
-            hovertemplate="Real:%{x:.2f}<br>Pred:%{y:.2f}<extra></extra>"))
-        fig_v.add_trace(go.Scatter(x=[4.5,8.5],y=[4.5,8.5],mode="lines",
-            line=dict(color=BORDER,width=1.5,dash="dot"),name="Ref. perfecta"))
-        fig_v.update_layout(title=dict(text="Predicho vs Real",font=dict(size=13,color=TEXT_MUTED)),
-            xaxis_title="Real (t/ha)",yaxis_title="Predicho (t/ha)",
-            template="plotly_dark",**CL,**AX)
-        st.plotly_chart(fig_v, use_container_width=True)
-
-    with vc2:
-        fig_hh = go.Figure()
-        fig_hh.add_trace(go.Histogram(x=HIST["r"], nbinsx=28,
-                                      marker_color=JD_GREEN, opacity=.7))
-        fig_hh.add_vline(x=PRED_R, line_color=JD_YELLOW, line_width=2, line_dash="dash",
-                         annotation_text=f"{PRED_R:.2f} t/ha",
-                         annotation_font_color=JD_YELLOW, annotation_font_size=11)
-        fig_hh.update_layout(title=dict(text="Distribución histórica de rendimiento",
-            font=dict(size=13,color=TEXT_MUTED)),
-            xaxis_title="Rendimiento (t/ha)",yaxis_title="Frecuencia",
-            template="plotly_dark",**CL,**AX,showlegend=False)
-        st.plotly_chart(fig_hh, use_container_width=True)
-
-    st.markdown(f'<div style="background:{SURFACE};border:1px solid {BORDER};border-radius:6px;'
-                f'padding:1.2rem 1.4rem;margin-top:.5rem;font-size:.88rem;color:{TEXT_MUTED};'
-                f'line-height:1.7;">El modelo usa las 20 cosechas más similares al escenario actual '
-                f'(distancia euclidiana normalizada). No hay algoritmos de ML externos. '
-                f'Error promedio en validación: '
-                f'<span style="color:{TEXT_PRIMARY};font-weight:600;">{MAE:.2f} t/ha</span>.'
-                f'<br>Siguiente paso: conectar <code>Data/models/yield_net.pt</code> '
-                f'vía <code>@st.cache_resource</code> para predicciones dinámicas.</div>',
-                unsafe_allow_html=True)
