@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
+from streamlit_mic_recorder import speech_to_text
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from math import ceil, pi, sqrt
@@ -1409,18 +1410,40 @@ elif page == "AgroBot":
     )
 
     # Chat display — fixed-height scrollable container
-    chat_container = st.container(height=520)
+    chat_container = st.container(height=460)
     with chat_container:
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-    # Input using native chat_input (sticks to bottom of the page)
-    user_input = st.chat_input("Escribe tu pregunta aquí…")
-    if user_input:
-        st.session_state.chat_history.append({"role": "user", "content": user_input})
+    # ── Mic + text input ──────────────────────────────────────────────────────
+    st.markdown(
+        f'<p style="font-size:.75rem;color:{TEXT_MUTED};margin-bottom:.3rem;">'
+        "Habla o escribe tu pregunta</p>",
+        unsafe_allow_html=True,
+    )
+
+    mic_col, text_col = st.columns([1, 4])
+
+    with mic_col:
+        voice_text = speech_to_text(
+            language="es-MX",
+            start_prompt="🎤",
+            stop_prompt="⏹",
+            just_once=True,
+            use_container_width=True,
+            key="agrobot_mic",
+        )
+
+    with text_col:
+        user_input = st.chat_input("Escribe tu pregunta aquí…")
+
+    # Process whichever input arrived (voice takes priority if both somehow arrive)
+    final_input = voice_text or user_input
+    if final_input:
+        st.session_state.chat_history.append({"role": "user", "content": final_input})
         st.session_state.chat_history.append(
-            {"role": "assistant", "content": get_bot_response(user_input)}
+            {"role": "assistant", "content": get_bot_response(final_input)}
         )
         st.rerun()
 
