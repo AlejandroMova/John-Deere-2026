@@ -13,6 +13,12 @@ RAW.mkdir(exist_ok=True)
 
 rng = np.random.default_rng(42)
 N = 500
+date_index = pd.date_range("2020-01-01", "2026-12-31", periods=N)
+day_angle = 2 * np.pi * (date_index.dayofyear.to_numpy() / 365.25)
+temp_aire = (24 + 9 * np.sin(day_angle - 0.7) + rng.normal(0, 2.2, N)).clip(4, 42)
+precipitacion_mm = (24 + 22 * np.sin(day_angle + 1.1) + rng.normal(0, 14, N)).clip(0, 140)
+humedad_relativa = (78 - 0.35 * (temp_aire - 24) - 0.08 * precipitacion_mm + rng.normal(0, 6, N)).clip(25, 98)
+campo_id = rng.integers(1, 9, N)
 
 
 # ── Dataset 1: Yield & cost (main Tab 1 model) ────────────────────────────────
@@ -42,6 +48,13 @@ costo_real = (
 )
 
 df_yield = pd.DataFrame({
+    "fecha":            date_index,
+    "maquina":          "Cosechadora",
+    "operacion":        "Cosecha",
+    "campo_id":         campo_id,
+    "temp_aire_c":      temp_aire,
+    "precipitacion_mm": precipitacion_mm,
+    "humedad_relativa_pct": humedad_relativa,
     "humedad_grano":    humedad_grano,
     "velocidad":        velocidad,
     "fertilizante":     fertilizante,
@@ -72,11 +85,19 @@ depth += rng.normal(0, 0.3, N)
 depth = depth.clip(1.5, 8.0)
 
 df_seed = pd.DataFrame({
+    "fecha":            date_index,
+    "maquina":          "Plantadora",
+    "operacion":        "Siembra",
+    "campo_id":         campo_id,
+    "temp_aire_c":      temp_aire,
+    "precipitacion_mm": precipitacion_mm,
+    "humedad_relativa_pct": humedad_relativa,
     "humedad_suelo_pct": soil_moist,
     "temp_suelo_c":      soil_temp,
     # label-encode crops for model training; raw name for readability
     "cultivo":           [crops[i] for i in crop_idx],
     "cultivo_enc":       crop_idx.astype(float),
+    "semillas_miles_ha":  (72 + crop_idx * 12 - (soil_moist - 22) * 0.35 + rng.normal(0, 4, N)).clip(40, 180),
     "profundidad_cm":    depth,
 })
 df_seed.to_csv(RAW / "seed_depth.csv", index=False)
@@ -99,6 +120,13 @@ n_applied    += rng.normal(0, 8, N)
 n_applied     = n_applied.clip(0, 280)
 
 df_fert = pd.DataFrame({
+    "fecha":          date_index,
+    "maquina":        "Fertilizadora",
+    "operacion":      "Fertilizacion",
+    "campo_id":       campo_id,
+    "temp_aire_c":    temp_aire,
+    "precipitacion_mm": precipitacion_mm,
+    "humedad_relativa_pct": humedad_relativa,
     "n_suelo_ppm":    n_soil_ppm,
     "objetivo_t_ha":  yield_target,
     "etapa":          [stages[i] for i in stage_idx],
@@ -125,6 +153,13 @@ days_harv = np.maximum(days_gdd, days_dry) + rng.normal(0, 1.5, N)
 days_harv = days_harv.clip(0, 90)
 
 df_harvest = pd.DataFrame({
+    "fecha":             date_index,
+    "maquina":           "Cosechadora",
+    "operacion":         "Planificacion cosecha",
+    "campo_id":          campo_id,
+    "temp_aire_c":       temp_aire,
+    "precipitacion_mm":  precipitacion_mm,
+    "humedad_relativa_pct": humedad_relativa,
     "gdd_acumulados":     gdd_curr,
     "humedad_grano_pct":  grain_moist,
     "temp_promedio_c":    avg_temp,
@@ -144,6 +179,13 @@ fuel_lkm      = 5.5 / velocidad_s + 0.14 * velocidad_s + rng.normal(0, 0.08, N)
 fuel_lkm      = fuel_lkm.clip(0.8, 4.5)
 
 df_speed = pd.DataFrame({
+    "fecha":            date_index,
+    "maquina":          "Tractor",
+    "operacion":        "Transporte",
+    "campo_id":         campo_id,
+    "temp_aire_c":      temp_aire,
+    "precipitacion_mm": precipitacion_mm,
+    "humedad_relativa_pct": humedad_relativa,
     "velocidad_kmh":    velocidad_s,
     "horas_motor":      horas_motor_s,
     "combustible_lkm":  fuel_lkm,
