@@ -693,6 +693,7 @@ PAGES = [
     "Semáforo operacional",
     "Gemelo digital",
     "Simulación",
+    "Siembra y Predicciones",
     "AgroBot",
 ]
 
@@ -1177,6 +1178,228 @@ elif page == "Gemelo digital":
             st.plotly_chart(fig_sp, use_container_width=True)
             mnote("Optimización Pareto multi-objetivo: suma de scores normalizados [0–1] para combustible, "
                   "tiempo y P(falla). La línea amarilla marca el mínimo compuesto.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PAGE: SIEMBRA Y PREDICCIONES
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "Siembra y Predicciones":
+
+    st.markdown(
+        f'<div style="margin-bottom:1.5rem;">'
+        f'<div style="color:{JD_YELLOW};font-size:0.78rem;font-weight:800;'
+        f'letter-spacing:1.3px;text-transform:uppercase;">Simulaciones agronómicas</div>'
+        f'<div style="font-size:2rem;font-weight:800;line-height:1.1;margin-top:0.25rem;">'
+        f'Siembra y Predicciones</div>'
+        f'<div style="color:{TEXT_MUTED};font-size:0.9rem;margin-top:0.4rem;">'
+        f'Profundidad de semilla, fertilizante, mapa de campo, timing de cosecha, '
+        f'caudal de aplicación y pronósticos climáticos.</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── b.1 Profundidad de semilla  +  b.4 Fertilizante ──────────────────────
+    cs, cf = st.columns(2, gap="large")
+
+    with cs:
+        slabel("b.1 · Profundidad óptima de semilla")
+        crop_  = st.selectbox("Cultivo", ["Maíz", "Trigo", "Soya", "Sorgo"], key="sp_crop")
+        smoist = st.slider("Humedad del suelo (%)",      10, 45, 22, key="sp_smoist")
+        stemp  = st.slider("Temperatura del suelo (°C)", 5,  35, 18, key="sp_stemp")
+        depth  = seed_depth_cm(smoist, stemp, crop_)
+
+        fig_g = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=depth,
+            number=dict(suffix=" cm", font=dict(size=28, color=TEXT_PRIMARY)),
+            gauge=dict(
+                axis=dict(range=[1.5, 8.0], tickcolor=TEXT_MUTED),
+                bar=dict(color=JD_GREEN), bgcolor=SURFACE_HIGH, borderwidth=0,
+                steps=[dict(range=[1.5,3.0],color="#1a3d1a"),
+                       dict(range=[3.0,5.5],color="#213d21"),
+                       dict(range=[5.5,8.0],color="#2e1a1a")],
+                threshold=dict(line=dict(color=JD_YELLOW,width=2), value=depth),
+            ),
+        ))
+        fig_g.update_layout(title=dict(text="Profundidad recomendada",
+                                       font=dict(size=13,color=TEXT_MUTED)),
+                            height=250, **CL)
+        fig_g.update_layout(margin=dict(l=20, r=20, t=36, b=10))
+        st.plotly_chart(fig_g, use_container_width=True)
+        mnote("Modelo: tabla de respuesta agronómica con ajuste por humedad y temperatura del suelo.")
+
+    with cf:
+        slabel("b.4 · Dosis de fertilizante nitrogenado")
+        n_ppm_  = st.slider("Nitrógeno en suelo (ppm)",        5,   60, 20,  key="sp_nppm")
+        y_tgt_  = st.slider("Objetivo rendimiento (t/ha)",     3.0, 10.0, 6.5, 0.5, key="sp_ytgt")
+        stage_  = st.selectbox("Etapa del cultivo",
+                               ["Siembra","Vegetativo","Reproductivo","Madurez"], key="sp_stage")
+        dose    = fert_dose(n_ppm_, y_tgt_, stage_)
+
+        n_range = np.linspace(0, 280, 300)
+        y_curve = (y_tgt_*1.18) * (1 - np.exp(-0.008*(n_range + n_ppm_*3.9)))
+        fig_f   = go.Figure()
+        fig_f.add_trace(go.Scatter(x=n_range, y=y_curve, mode="lines",
+                                   line=dict(color=JD_GREEN, width=2), name="Respuesta al N"))
+        fig_f.add_vline(x=dose, line_color=JD_YELLOW, line_dash="dash", line_width=1.8,
+                        annotation_text=f"{dose:.0f} kg/ha",
+                        annotation_font_color=JD_YELLOW, annotation_font_size=11)
+        fig_f.update_layout(
+            title=dict(text="Curva de respuesta N (Mitscherlich-Baule)",
+                       font=dict(size=13,color=TEXT_MUTED)),
+            xaxis_title="N aplicado (kg/ha)", yaxis_title="Rendimiento esperado (t/ha)",
+            template="plotly_dark", height=250, **CL, **AX)
+        st.plotly_chart(fig_f, use_container_width=True)
+        mnote("Modelo: ecuación de saturación Mitscherlich-Baule. Dosis calculada para la etapa seleccionada.")
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    # ── b.6 Mapa de posicionamiento ───────────────────────────────────────────
+    slabel("b.6 · Mapa de posicionamiento de semillas")
+    mc1_, mc2_ = st.columns([1, 3])
+    with mc1_:
+        map_seed_ = st.slider("Variabilidad del terreno", 1, 99, 42, key="sp_mapseed")
+        thresh_   = st.slider("Umbral zona óptima (%)",   40, 80, 60, key="sp_thresh")
+    qmap = field_quality_map(seed=map_seed_)
+    with mc2_:
+        fig_m = go.Figure()
+        fig_m.add_trace(go.Heatmap(z=qmap,
+            colorscale=[[0,"#3d0c0c"],[.4,"#7a3a00"],[.6,"#2e4a1a"],[1,JD_GREEN]],
+            colorbar=dict(title=dict(text="Calidad", font=dict(color=TEXT_MUTED)),
+                          tickfont=dict(color=TEXT_MUTED)),
+            zmin=0, zmax=1))
+        fig_m.add_trace(go.Contour(z=qmap,
+            contours=dict(start=thresh_/100, end=1.0, size=.5, coloring="none"),
+            line=dict(color=JD_YELLOW, width=1.5, dash="dot"), showscale=False,
+            name=f"Zona óptima (>{thresh_}%)"))
+        fig_m.update_layout(
+            title=dict(text="Calidad del suelo — zonas recomendadas para siembra",
+                       font=dict(size=13,color=TEXT_MUTED)),
+            xaxis_title="Posición E-O", yaxis_title="Posición N-S",
+            template="plotly_dark", height=340, **CL, **AX)
+        st.plotly_chart(fig_m, use_container_width=True)
+        mnote("Modelo: interpolación espacial con blobs gaussianos. "
+              "Líneas amarillas = contorno de zona óptima configurable.")
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    # ── b.2 Cuándo cosechar  +  b.7 Caudal/Presión ───────────────────────────
+    ch_, cn_ = st.columns(2, gap="large")
+
+    with ch_:
+        slabel("b.2 · ¿Cuándo cosechar?")
+        h_crop_ = st.selectbox("Cultivo ",  ["Maíz","Trigo","Soya","Sorgo"], key="sp_hcrop")
+        gdd_    = st.slider("GDD acumulados",              800, 3500, 2200, 50, key="sp_gdd")
+        gmoist_ = st.slider("Humedad del grano (%) ",       12,   35,   24,     key="sp_gmoist")
+        atemp_  = st.slider("Temperatura promedio (°C) ",   15,   38,   26,     key="sp_atemp")
+        days_, label_, hcolor_ = harvest_timing(gdd_, gmoist_, h_crop_, atemp_)
+
+        st.markdown(
+            f'<div style="background:{SURFACE};border:1px solid {BORDER};'
+            f'border-radius:6px;padding:1rem 1.2rem;margin:.8rem 0;">'
+            f'<div style="font-size:.75rem;color:{TEXT_MUTED};text-transform:uppercase;'
+            f'letter-spacing:.5px;margin-bottom:.3rem;">Estado</div>'
+            f'<div style="font-size:1.4rem;font-weight:700;color:{hcolor_};">{label_}</div>'
+            f'<div style="color:{TEXT_MUTED};font-size:.88rem;margin-top:.3rem;">'
+            f'{"Condiciones óptimas alcanzadas." if days_<5 else f"~{days_:.0f} días para condiciones óptimas."}'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
+
+        gdd_target_ = {"Maíz":2800,"Trigo":2000,"Soya":2600,"Sorgo":2400}[h_crop_]
+        fig_gdd = go.Figure()
+        fig_gdd.add_trace(go.Bar(
+            x=["GDD acumulados","GDD restantes"],
+            y=[min(gdd_, gdd_target_), max(0, gdd_target_-gdd_)],
+            marker_color=[JD_GREEN, SURFACE_HIGH],
+            text=[f"{min(gdd_,gdd_target_):.0f}", f"{max(0,gdd_target_-gdd_):.0f}"],
+            textposition="inside", textfont=dict(color=TEXT_PRIMARY)))
+        fig_gdd.update_layout(
+            title=dict(text=f"GDD — meta: {gdd_target_}", font=dict(size=13,color=TEXT_MUTED)),
+            yaxis_title="Grados-día (°C·día)", template="plotly_dark",
+            height=220, **CL, **AX, showlegend=False)
+        st.plotly_chart(fig_gdd, use_container_width=True)
+        mnote("Modelo: Grados-Día de Crecimiento (GDD, base 10°C) + secado del grano (~0.7%/día).")
+
+    with cn_:
+        slabel("b.7 · Caudal y presión de fertilizante")
+        NOZZLE_MAP = {"015 (estrecho)":"015","02 (estándar)":"02",
+                      "03 (medio)":"03","04 (amplio)":"04","05 (grueso)":"05"}
+        p_bar_   = st.slider("Presión (bar)",                   1.0, 6.0, 3.0, 0.1, key="sp_pbar")
+        nzl_lbl_ = st.selectbox("Boquilla (ISO 10625)", list(NOZZLE_MAP.keys()), key="sp_nozzle")
+        nspd_    = st.slider("Velocidad del tractor (km/h)  ",  3.0, 12.0, 7.0, 0.5, key="sp_nspd")
+        nsp_m_   = st.slider("Distancia entre boquillas (m)",   0.25, 1.5, 0.5, 0.05, key="sp_nspm")
+        fl_lmin_, app_ = nozzle_flow(p_bar_, NOZZLE_MAP[nzl_lbl_], nspd_, nsp_m_)
+
+        nm1, nm2 = st.columns(2)
+        nm1.metric("Caudal por boquilla", f"{fl_lmin_:.2f} L/min")
+        nm2.metric("Tasa de aplicación",  f"{app_:.0f} L/ha")
+
+        KS = {"015":0.24,"02":0.33,"03":0.49,"04":0.65,"05":0.82}
+        p_range_ = np.linspace(0.5, 7.0, 100)
+        fig_n = go.Figure()
+        for code, k in KS.items():
+            sel = (code == NOZZLE_MAP[nzl_lbl_])
+            fig_n.add_trace(go.Scatter(
+                x=p_range_, y=k*np.sqrt(p_range_), mode="lines", name=code,
+                line=dict(color=JD_GREEN if sel else BORDER,
+                          width=2.5 if sel else 1)))
+        fig_n.add_vline(x=p_bar_, line_color=JD_YELLOW, line_dash="dash", line_width=1.5,
+                        annotation_text=f"{p_bar_} bar",
+                        annotation_font_color=JD_YELLOW, annotation_font_size=11)
+        fig_n.update_layout(
+            title=dict(text="Caudal vs presión por tamaño de boquilla",
+                       font=dict(size=13,color=TEXT_MUTED)),
+            xaxis_title="Presión (bar)", yaxis_title="Caudal (L/min)",
+            template="plotly_dark", height=220, **CL, **AX)
+        st.plotly_chart(fig_n, use_container_width=True)
+        mnote("Modelo: ecuación hidráulica ISO 10625 — Q = K·√P.")
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    # ── b.3 Temperatura  +  b.5 Humedad ──────────────────────────────────────
+    ct_, chu_ = st.columns(2, gap="large")
+    days_lbl  = [f"Día {i+1}" for i in range(7)]
+
+    with ct_:
+        slabel("b.3 · Pronóstico de temperatura (7 días)")
+        btemp_ = st.slider("Temperatura actual (°C)", 5, 42, 27, key="sp_btemp")
+        tf     = forecast_7d(btemp_, sigma=2.2, rev_rate=0.12,
+                             lo=btemp_-12, hi=btemp_+12, seed=42)
+        fig_t  = go.Figure()
+        fig_t.add_trace(go.Scatter(
+            x=days_lbl, y=tf, mode="lines+markers",
+            line=dict(color=JD_GREEN,width=2), marker=dict(size=6,color=JD_GREEN),
+            fill="tozeroy", fillcolor="rgba(54,124,43,.1)"))
+        fig_t.add_hline(y=35, line_color="#CC5555", line_dash="dot", line_width=1,
+                        annotation_text="Estrés térmico (35°C)",
+                        annotation_font_color="#CC5555", annotation_font_size=10)
+        fig_t.update_layout(
+            title=dict(text="Temperatura estimada (°C)", font=dict(size=13,color=TEXT_MUTED)),
+            yaxis_title="°C", template="plotly_dark", height=240, **CL,
+            xaxis=dict(gridcolor=BORDER),
+            yaxis=dict(gridcolor=BORDER, range=[0, 45]))
+        st.plotly_chart(fig_t, use_container_width=True)
+        mnote("Modelo: paseo aleatorio con regresión a la media.")
+
+    with chu_:
+        slabel("b.5 · Pronóstico de humedad del suelo (7 días)")
+        bhum_ = st.slider("Humedad actual del suelo (%)", 15, 55, 30, key="sp_bhum")
+        hf    = forecast_7d(bhum_, sigma=3.5, rev_rate=0.14, lo=15, hi=95, seed=7)
+        fig_h = go.Figure()
+        fig_h.add_hrect(y0=20, y1=50, fillcolor="rgba(54,124,43,.07)", line_width=0,
+                        annotation_text="Rango óptimo",
+                        annotation_font_color=TEXT_MUTED, annotation_font_size=10)
+        fig_h.add_trace(go.Scatter(
+            x=days_lbl, y=hf, mode="lines+markers",
+            line=dict(color="#5B9BD5",width=2), marker=dict(size=6,color="#5B9BD5")))
+        fig_h.update_layout(
+            title=dict(text="Humedad del suelo estimada (%)", font=dict(size=13,color=TEXT_MUTED)),
+            yaxis_title="%", template="plotly_dark", height=240, **CL,
+            xaxis=dict(gridcolor=BORDER),
+            yaxis=dict(gridcolor=BORDER, range=[10, 65]))
+        st.plotly_chart(fig_h, use_container_width=True)
+        mnote("Modelo: proceso autorregresivo con reversión a la media.")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE: AGROBOT
